@@ -9,6 +9,7 @@
  *    PIN 5 - Randomizer button
  *    PIN 6 - Clock input (LFO or analog trigger)
  *    PIN 7 - Sequencer Output
+ *    ANALOG PIN 1 - Length input (C1)
  */
 
 /****SET VARIABLES****/
@@ -16,19 +17,24 @@
 const int randomButton = 5;
 const int clockPin = 6;
 const int seqOut = 7;
+const int lengthIn = 1;
 
 //  sequencer array
-int sequence[16]; 
+int sequence[16];
+
+//  sequencer length
+int seqLSet;
+int seqL = 15; //0-15
 
 //  position of sequencer in array
 int seqPos = 0;
 
-//  set state of randomizer button
+//  state of randomizer button
 int randomSet = 0;
 int randomStateCurrent = 0;
 int randomStatePrevious = 0;
 
-//  to parse clock input
+//  parse clock input
 int clockSet = 0;
 int clockStateCurrent = 0;
 int clockStatePrevious = 0;
@@ -46,14 +52,19 @@ void setup() {
   pinMode(randomButton, INPUT);
   pinMode(clockPin, INPUT);
   pinMode(seqOut, OUTPUT);
+  pinMode(lengthIn, INPUT);
 
   //  begin serial for debug
-  Serial.begin(9600);
+  //Serial.begin(9600);
  
 }
 
 /****LOOP****/
 void loop() {
+
+  //  read and map length input to 2-16 steps
+  seqLSet = analogRead(lengthIn);
+  seqL = map(seqLSet, 0, 1023, 1, 15);
 
   //  set state for randomizer button
   randomSet = digitalRead(randomButton);
@@ -73,7 +84,7 @@ void loop() {
       randomizeSeq();
       //  set sequencer back to first position
       seqPos = 0;
-      Serial.println("RandomButton");
+      //Serial.println("RandomButton");
     }
   }
 
@@ -89,24 +100,31 @@ void loop() {
   //  detect edge of clock input
   if (clockStateCurrent != clockStatePrevious) {
     clockStatePrevious = clockStateCurrent;
-    
-    if (seqPos < 15) {
-      seqPos++;
-    } else {
-      seqPos = 0;
-      //Serial.println("SeqPosReset");
-    } 
 
-    if (sequence[seqPos] == 1) {
-      digitalWrite(seqOut, HIGH); 
-    } else {
-      digitalWrite(seqOut, LOW);
+    //  only progress if clock is HIGH
+    if (clockSet == HIGH); {
+      //  move sequencer position forward
+      if (seqPos < seqL) {
+        seqPos++;
+      } else {
+        seqPos = 0;
+        //Serial.println("seqPosReset");
+      } 
+  
+      //  read sequence data and set pin output
+      if (sequence[seqPos] == 1) {
+        digitalWrite(seqOut, HIGH); 
+      } else {
+        digitalWrite(seqOut, LOW);
+      }
+      
+      Serial.print("Position");
+      Serial.println(seqPos);
+      Serial.print("Output");
+      Serial.println(sequence[seqPos]);
+      
     }
-    
-    Serial.print("Position");
-    Serial.println(seqPos);
-    Serial.print("Output");
-    Serial.println(sequence[seqPos]);
+      
   }
   
 }
@@ -114,7 +132,7 @@ void loop() {
 /****FUNCTIONS****/
 //  fill sequence array with random values
 void randomizeSeq() {
-  
+
   for (int i = 0; i <= 15; i++) {
     float randomF = random(2);
     int randomC = (int) randomF;
