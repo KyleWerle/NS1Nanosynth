@@ -118,10 +118,12 @@ void loop() {
         digitalWrite(seqOut, LOW);
       }
       
+      /*
       Serial.print("Position");
       Serial.println(seqPos);
       Serial.print("Output");
       Serial.println(sequence[seqPos]);
+      */
       
     }
       
