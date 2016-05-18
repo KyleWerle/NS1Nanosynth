@@ -1,0 +1,224 @@
+/*
+ * IXAR'AN SEQUENCER
+ * for Arduino 
+ * for Soundmachines NS1 nanosynth
+ * for Summoning Dark Lords of Immaterial Planes
+ * 
+ *    Kyle Werle
+ *      2016-02-24
+ *    PIN 5 - Gate Randomizer button
+ *    PIN 6 - Clock input (LFO or analog trigger)
+ *    PIN 7 - Sequencer Gate Output
+ *    PIN 8 - Record Toggle Button
+ *    PIN 13 - Record Mode LED
+ *    ANALOG PIN 1 - Length input (C1)
+ *    ANALOG PIN 2 - CV Length input (C2)
+ *    ANALOG PIN 3 - CV Input (Ribbon HLD)
+ *    
+ *    
+ *    CHANGE LOG****************
+ *      v1
+ *      2016-05-17
+ *        added CV sequencer with record mode switch
+ *        implemented the MCP4451 quad digipot on NS1
+ */
+
+/****LIBRARIES****/
+//  i2c lib to drive the quad digipot
+#include "Wire.h"
+
+/****SET VARIABLES****/
+//  pins on Arduino
+const int randomButton = 5;
+const int clockPin = 6;
+const int seqOut = 7;
+const int recordButton = 8;
+const int recordModeLED = 13;
+const int lengthIn = A1;
+const int CVlengthIn = A2;
+const int CVinput = A3;
+
+//  sequencer arrays
+int CVsequence[16];
+int sequence[16];
+
+//  sequencer lengths
+int CVseqL = 15; //0-15
+int seqL = 15; //0-15
+
+//  position of sequencer in array
+int CVseqPos = 0;
+int seqPos = 0;
+
+//  record Mode
+bool recordMode = false;
+
+//  read CV input
+int CVreader = 0;
+unsigned char CVquantise;
+
+//  state of recorder button
+bool recordState = false;
+bool recordStatePrevious = false;
+
+//  state of randomizer button
+bool randomState = false;
+bool randomStatePrevious = false;
+
+//  parse clock input
+bool clockState = false;
+bool clockStatePrevious = false;
+
+//  digipot variables
+byte addresses[4] = { 0x00, 0x10, 0x60, 0x70 };
+byte digipot_addr = 0x2C; //  i2c bus IC addr
+
+/****INIT SETUP****/
+void setup() {
+  //  begin i2c
+  Wire.begin();
+
+  //  set random seed
+  randomSeed(analogRead(A0)*PI*analogRead(A4));
+
+  //  fill sequencer with random data
+  randomizeSeq();
+
+  //  set pins on Arduino
+  pinMode(randomButton, INPUT);
+  pinMode(clockPin, INPUT);
+  pinMode(seqOut, OUTPUT);
+  pinMode(recordButton, INPUT);
+  pinMode(recordModeLED, OUTPUT);
+  pinMode(lengthIn, INPUT);
+  pinMode(CVlengthIn, INPUT);
+  pinMode(CVinput, INPUT);
+
+  //  begin serial for debug
+  Serial.begin(9600);
+ 
+}
+
+/****LOOP****/
+void loop() {
+  //  read and map CVlength to 2-16 steps
+  CVseqL = map(analogRead(CVlengthIn), 0, 1023, 1, 15);
+  
+  //  read and map length input to 2-16 steps
+  seqL = map(analogRead(lengthIn), 0, 1023, 1, 15);
+
+  //  set state for recorder button
+  recordState = digitalRead(recordButton);
+
+  //  detect edge of record button input
+  if (recordState != recordStatePrevious) {
+    recordStatePrevious = recordState;
+
+    //  toggle record mode when record button is pressed
+    if (recordState == HIGH) {
+      recordMode = !recordMode;
+      
+      //  enable LED for record mode
+      if (recordMode) {
+        digitalWrite(recordModeLED, HIGH);
+      } else {
+        digitalWrite(recordModeLED, LOW);
+      }
+    }
+  }
+  
+  //  set state for randomizer button
+  randomState = digitalRead(randomButton);
+
+  //  detect edge of random button input
+  if (randomState != randomStatePrevious) {
+    randomStatePrevious = randomState;
+
+    //  activate randomizer
+    if (randomState == HIGH) {
+      randomizeSeq();
+      //  set sequencer back to first position
+      seqPos = 0;
+    }
+  }
+
+  //  read clock input and set state of clock
+  clockState = digitalRead(clockPin);
+
+  //  detect edge of clock input
+  if (clockState != clockStatePrevious) {
+    clockStatePrevious = clockState;
+
+    //  only progress if clock is HIGH
+    if (clockState == HIGH); {
+      //  move CV sequencer position forward
+      if (CVseqPos < CVseqL) {
+        CVseqPos++;
+      } else {
+        CVseqPos = 0;
+      }
+
+      //  read CV input when record mode is active
+      if (recordMode) {
+        //  read incoming CV input and map to 255
+        CVreader = map(analogRead(CVinput), 0, 1023, 0, 254);
+
+        //  quantise CV sequencer to PI
+        CVquantise = (int)(PI*(float)((int)((float)CVreader/PI+0.5)));
+        
+        //  record CV data into current sequence memory
+        CVsequence[CVseqPos] = CVquantise;
+      }
+
+      //  write current CV sequence data to digipot
+      DigipotWrite(0, CVsequence[CVseqPos]);
+      
+      //  move gate sequencer position forward
+      if (seqPos < seqL) {
+        seqPos++;
+      } else {
+        seqPos = 0;
+      } 
+  
+      //  read sequence data and set pin output
+      if (sequence[seqPos] == 1) {
+        digitalWrite(seqOut, HIGH); 
+      } else {
+        digitalWrite(seqOut, LOW);
+      }
+
+    }
+      
+  }
+  
+}
+
+/****FUNCTIONS****/
+//  fill sequence array with random values
+void randomizeSeq() {
+
+  for (int i = 0; i <= 15; i++) {
+    float randomF = random(2);
+    int randomC = (int) randomF;
+    
+    sequence[i] = randomC;
+  } 
+}
+
+//  write a value on a digipot in the IC
+void DigipotWrite(byte pot,byte val) {
+  i2c_send( digipot_addr, 0x40, 0xff );
+  i2c_send( digipot_addr, 0xA0, 0xff );
+  i2c_send( digipot_addr, addresses[pot], val);  
+}
+
+//  wrapper for i2c digipot routines
+void i2c_send(byte addr, byte a, byte b) {
+  Wire.beginTransmission(addr);
+  Wire.write(a);
+  Wire.write(b);
+  Wire.endTransmission();
+}
+
+
+
