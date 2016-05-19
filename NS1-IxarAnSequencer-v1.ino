@@ -95,7 +95,7 @@ void setup() {
   pinMode(CVinput, INPUT);
 
   //  begin serial for debug
-  Serial.begin(9600);
+  //Serial.begin(9600);
  
 }
 
