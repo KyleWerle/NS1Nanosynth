@@ -7,20 +7,27 @@
  *    Kyle Werle
  *      2016-02-24
  *    PIN 5 - Gate Randomizer button
- *    PIN 6 - Clock input (LFO or analog trigger)
- *    PIN 7 - Sequencer Gate Output
- *    PIN 8 - Record Toggle Button
+ *    PIN 6 - Sequencer Gate Output
+ *    PIN 7 - Clock input (LFO or analog trigger)
+ *    PIN 8 - Record Control (Ribbon GATE)
  *    PIN 13 - Record Mode LED
  *    ANALOG PIN 1 - Length input (C1)
  *    ANALOG PIN 2 - CV Length input (C2)
  *    ANALOG PIN 3 - CV Input (Ribbon HLD)
  *    
- *    
+ *    POSSIBLE ADDITIONS********
+ *      EEPROM storage of randomSeed to save sequences
+ *      extra gate and CV sequencers
+ *      use 2 more more buttons
+ *      
  *    CHANGE LOG****************
  *      v1
  *      2016-05-17
  *        added CV sequencer with record mode switch
  *        implemented the MCP4451 quad digipot on NS1
+ *      2016-5-18
+ *        switched gate output and clock input pins
+ *        changed record behavior to be controlled by ribbon gate
  */
 
 /****LIBRARIES****/
@@ -30,9 +37,9 @@
 /****SET VARIABLES****/
 //  pins on Arduino
 const int randomButton = 5;
-const int clockPin = 6;
-const int seqOut = 7;
-const int recordButton = 8;
+const int seqOut = 6;
+const int clockPin = 7;
+const int recordControl = 8;
 const int recordModeLED = 13;
 const int lengthIn = A1;
 const int CVlengthIn = A2;
@@ -55,6 +62,8 @@ bool recordMode = false;
 
 //  read CV input
 int CVreader = 0;
+//  quantise CV output
+unsigned char quantiser = PI;
 unsigned char CVquantise;
 
 //  state of recorder button
@@ -79,16 +88,16 @@ void setup() {
   Wire.begin();
 
   //  set random seed
-  randomSeed(analogRead(A0)*PI*analogRead(A4));
-
+  randomSeed(analogRead(A5)*PI*analogRead(A4));
+  
   //  fill sequencer with random data
   randomizeSeq();
 
   //  set pins on Arduino
   pinMode(randomButton, INPUT);
-  pinMode(clockPin, INPUT);
   pinMode(seqOut, OUTPUT);
-  pinMode(recordButton, INPUT);
+  pinMode(clockPin, INPUT);
+  pinMode(recordControl, INPUT);
   pinMode(recordModeLED, OUTPUT);
   pinMode(lengthIn, INPUT);
   pinMode(CVlengthIn, INPUT);
@@ -108,22 +117,23 @@ void loop() {
   seqL = map(analogRead(lengthIn), 0, 1023, 1, 15);
 
   //  set state for recorder button
-  recordState = digitalRead(recordButton);
+  recordState = digitalRead(recordControl);
 
   //  detect edge of record button input
   if (recordState != recordStatePrevious) {
     recordStatePrevious = recordState;
 
-    //  toggle record mode when record button is pressed
+    //  set record mode on when gate is held down
     if (recordState == HIGH) {
-      recordMode = !recordMode;
+      recordMode = true;
       
       //  enable LED for record mode
-      if (recordMode) {
-        digitalWrite(recordModeLED, HIGH);
-      } else {
-        digitalWrite(recordModeLED, LOW);
-      }
+      digitalWrite(recordModeLED, HIGH);
+    } else {
+      recordMode = false;
+      
+      //  disable LED
+      digitalWrite(recordModeLED, LOW);
     }
   }
   
@@ -155,7 +165,7 @@ void loop() {
       if (CVseqPos < CVseqL) {
         CVseqPos++;
       } else {
-        CVseqPos = 0;
+      CVseqPos = 0;
       }
 
       //  read CV input when record mode is active
@@ -164,7 +174,7 @@ void loop() {
         CVreader = map(analogRead(CVinput), 0, 1023, 0, 254);
 
         //  quantise CV sequencer to PI
-        CVquantise = (int)(PI*(float)((int)((float)CVreader/PI+0.5)));
+        CVquantise = (int)(quantiser*(float)((int)((float)CVreader/quantiser+0.5)));
         
         //  record CV data into current sequence memory
         CVsequence[CVseqPos] = CVquantise;
@@ -186,7 +196,7 @@ void loop() {
       } else {
         digitalWrite(seqOut, LOW);
       }
-
+      
     }
       
   }
@@ -219,6 +229,3 @@ void i2c_send(byte addr, byte a, byte b) {
   Wire.write(b);
   Wire.endTransmission();
 }
-
-
-
